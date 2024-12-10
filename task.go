@@ -5,8 +5,9 @@ import (
 )
 
 type EventBody struct {
-	Event     Event
-	EventChan EventChan
+	Event      Event
+	Subscribes []EventChan
+	Listeners  []Listener
 }
 
 func (e EventBody) TaskId() string {
@@ -23,5 +24,13 @@ func (e EventTask) Id() string {
 func (e EventTask) Execute(body gotask.IBody) {
 	defer recoverPanic()
 	eventBody := body.(*EventBody)
-	eventBody.EventChan <- eventBody.Event
+	defer recoverPanic()
+
+	for _, listener := range eventBody.Listeners {
+		listener(eventBody.Event)
+	}
+
+	for _, subscriber := range eventBody.Subscribes {
+		subscriber <- eventBody.Event
+	}
 }

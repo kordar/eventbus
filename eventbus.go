@@ -7,18 +7,13 @@ import (
 
 type (
 	EventChan chan Event
+	Listener  func(event Event)
 )
-
-type Listener interface {
-	Topics() []string
-	Trigger(topic string, event Event)
-}
 
 type EventBus struct {
 	mu          sync.RWMutex
 	subscribers map[string][]EventChan
 	listeners   map[string][]Listener
-	driver      map[string]Driver
 	taskHandle  *gotask.TaskHandle
 }
 
@@ -27,59 +22,51 @@ func NewEventBus(handle *gotask.TaskHandle) *EventBus {
 		subscribers: make(map[string][]EventChan),
 		listeners:   make(map[string][]Listener),
 		mu:          sync.RWMutex{},
-		driver:      map[string]Driver{},
 		taskHandle:  handle,
 	}
 }
 
-func (eb *EventBus) RegDriver(driver Driver) {
-	eb.driver[driver.Name()] = driver
-}
-
-func (eb *EventBus) AddListener(listener Listener) {
-	topics := listener.Topics()
-	if topics == nil || len(topics) == 0 {
-		return
-	}
-	for _, topic := range topics {
-		eb.listeners[topic] = append(eb.listeners[topic], listener)
-	}
-}
-
-func (eb *EventBus) PublishByGoroutine(topic string, event Event) {
-	eb.mu.RLock()
-	defer eb.mu.RUnlock()
-	// 复制一个新的订阅者列表，避免在发布事件时修改订阅者列表
-	subscribers := append([]EventChan{}, eb.subscribers[topic]...)
-	go func() {
-		defer recoverPanic() // 使用 defer 调用 recover
-		for _, subscriber := range subscribers {
-			if eb.driver[event.DriverName] != nil {
-				eb.driver[event.DriverName].Publish(event)
-			} else {
-				subscriber <- event
-			}
-		}
-	}()
+// AddListener 一般topic使用事件id进行绑定listener
+func (eb *EventBus) AddListener(topic string, listener Listener) {
+	eb.listeners[topic] = append(eb.listeners[topic], listener)
 }
 
 func (eb *EventBus) Publish(topic string, event Event) {
 	eb.mu.RLock()
 	defer eb.mu.RUnlock()
-	defer recoverPanic() // 使用 defer 调用 recover
+
 	// 复制一个新的订阅者列表，避免在发布事件时修改订阅者列表
 	subscribers := append([]EventChan{}, eb.subscribers[topic]...)
-	for _, subscriber := range subscribers {
-		if eb.driver[event.DriverName] != nil {
-			eb.driver[event.DriverName].Publish(event)
-		} else {
-			if event.Async && eb.taskHandle != nil {
-				eb.taskHandle.SendToTaskQueue(&EventBody{Event: event, EventChan: subscriber})
-			} else {
-				subscriber <- event
-			}
+	listeners := append([]Listener{}, eb.listeners[topic]...)
+
+	if event.Async == NoneAsync {
+		defer recoverPanic()
+		for _, listener := range listeners {
+			listener(event)
+		}
+		for _, subscriber := range subscribers {
+			subscriber <- event
 		}
 	}
+
+	if event.Async == TaskAsync && eb.taskHandle != nil {
+		eb.taskHandle.SendToTaskQueue(&EventBody{Event: event, Subscribes: subscribers, Listeners: listeners})
+	}
+
+	if event.Async == GoroutineAsync {
+		go func() {
+			defer recoverPanic()
+
+			for _, listener := range listeners {
+				listener(event)
+			}
+
+			for _, subscriber := range subscribers {
+				subscriber <- event
+			}
+		}()
+	}
+
 }
 
 func (eb *EventBus) Subscribe(topic string) EventChan {
