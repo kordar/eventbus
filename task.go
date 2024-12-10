@@ -21,6 +21,7 @@ func (e EventTask) Id() string {
 }
 
 func (e EventTask) Execute(body gotask.IBody) {
+	defer recoverPanic()
 	eventBody := body.(*EventBody)
 	eventBody.EventChan <- eventBody.Event
 }
