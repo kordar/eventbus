@@ -2,6 +2,7 @@ package eventbus
 
 import (
 	"github.com/kordar/gologger"
+	"github.com/kordar/gotask"
 	"github.com/spf13/cast"
 )
 
@@ -25,7 +26,22 @@ func (m EventBusModule) _load(id string, cfg map[string]string) {
 		return
 	}
 
-	eventBus := NewEventBus()
+	var handle *gotask.TaskHandle = nil
+	if cfg["async"] == "on" {
+		workSize := cast.ToInt(cfg["work_size"])
+		queueBuffLen := cast.ToInt(cfg["queue_buff_len"])
+		if workSize == 0 {
+			workSize = 3
+		}
+		if queueBuffLen == 0 {
+			queueBuffLen = 20
+		}
+		handle = gotask.NewTaskHandleWithName(id, workSize, queueBuffLen)
+		handle.StartWorkerPool()
+		handle.AddTask(EventTask{})
+	}
+
+	eventBus := NewEventBus(handle)
 	if m.load != nil {
 		m.load(m.name, id, cfg, eventBus)
 		logger.Debugf("[%s] triggering custom loader completion", m.Name())
