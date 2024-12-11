@@ -27,9 +27,9 @@ func (m EventBusModule) _load(id string, cfg map[string]string) {
 	}
 
 	var handle *gotask.TaskHandle = nil
-	if cfg["async"] == "on" {
-		workSize := cast.ToInt(cfg["work_size"])
-		queueBuffLen := cast.ToInt(cfg["queue_buff_len"])
+	if cfg["async_task"] == "on" {
+		workSize := cast.ToInt(cfg["async_task_work_size"])
+		queueBuffLen := cast.ToInt(cfg["async_task_queue_buff_len"])
 		if workSize == 0 {
 			workSize = 3
 		}
