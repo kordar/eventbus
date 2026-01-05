@@ -7,3 +7,12 @@ func recoverPanic() {
 		logger.Errorf("catch the exception execution, err = %v", r)
 	}
 }
+
+func safeSend(ch EventChan, event Event) {
+	defer func() { recover() }()
+	select {
+	case ch <- event:
+	default:
+		// channel 满了，丢弃事件
+	}
+}

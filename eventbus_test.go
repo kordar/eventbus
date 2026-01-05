@@ -1,12 +1,12 @@
 package eventbus_test
 
 import (
-	"fmt"
+	"testing"
+	"time"
+
 	"github.com/kordar/eventbus"
 	logger "github.com/kordar/gologger"
 	"github.com/kordar/gotask"
-	"testing"
-	"time"
 )
 
 type Demo struct {
@@ -21,16 +21,17 @@ func TestEventBus_Publish(t *testing.T) {
 	handle := gotask.NewTaskHandleWithName("ABC", 3, 10)
 	handle.StartWorkerPool()
 	handle.AddTask(eventbus.EventTask{})
+	opt := eventbus.WithHandle(handle)
 
-	eventBus := eventbus.NewEventBus(handle)
+	eventBus := eventbus.NewEventBus(opt)
 
 	// 订阅 post 主题事件
 	subscribe := eventBus.Subscribe("post")
-	//defer eventBus.Unsubscribe("post", subscribe)
+	defer eventBus.Unsubscribe("post", subscribe)
 
 	go func() {
 		for event := range subscribe {
-			fmt.Println(event)
+			logger.Info(event)
 		}
 	}()
 
