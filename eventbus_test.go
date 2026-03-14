@@ -5,64 +5,116 @@ import (
 	"time"
 
 	"github.com/kordar/eventbus"
-	logger "github.com/kordar/gologger"
 	"github.com/kordar/gotask"
 )
 
-type Demo struct {
-}
-
-func (d *Demo) Reg(event eventbus.Event) {
-	logger.Info("register event:", event.Id, event.Payload)
-}
-
 func TestEventBus_Publish(t *testing.T) {
+	bus := eventbus.NewEventBus(eventbus.WithBuffer(1))
 
-	handle := gotask.NewTaskHandleWithName("ABC", 3, 10)
-	handle.StartWorkerPool()
-	handle.AddTask(eventbus.EventTask{})
-	opt := eventbus.WithHandle(handle)
-
-	eventBus := eventbus.NewEventBus(opt)
-
-	// 订阅 post 主题事件
-	subscribe := eventBus.Subscribe("post")
-	defer eventBus.Unsubscribe("post", subscribe)
-
-	go func() {
-		for event := range subscribe {
-			logger.Info(event)
-		}
-	}()
-
-	demo := &Demo{}
-
-	eventBus.AddListener("post2", demo.Reg)
-
-	eventBus.Publish("post", eventbus.Event{Payload: map[string]interface{}{
-		"postId": 1,
-		"title":  "Go 事件驱动编程：实现一个简单的事件总线",
-		"author": "陈明勇",
-	}})
-
-	eventBus.AddListener("post2", func(event eventbus.Event) {
-		logger.Info("3333333333333333333333")
+	listenerCalled := make(chan struct{}, 1)
+	bus.AddListener("post", func(event eventbus.Event) {
+		listenerCalled <- struct{}{}
 	})
 
-	time.Sleep(time.Second * 2)
-	// 不存在订阅者的 topic
-	eventBus.Publish("post", eventbus.Event{Payload: "pay"})
+	subscribe := bus.Subscribe("post")
+	defer bus.Unsubscribe("post", subscribe)
 
-	time.Sleep(time.Second * 2)
-	eventBus.Publish("post2", eventbus.Event{Payload: "pay222", Async: eventbus.TaskAsync})
+	bus.Publish("post", eventbus.Event{Payload: "payload"})
 
-	time.Sleep(time.Second * 2)
-	eventBus.Publish("post", eventbus.Event{Payload: "pay"})
+	select {
+	case <-listenerCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("listener not called")
+	}
 
-	time.Sleep(time.Second * 2)
-	eventBus.Publish("post", eventbus.Event{Payload: "pay"})
+	select {
+	case <-subscribe:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("subscriber not received")
+	}
+}
 
-	time.Sleep(time.Second * 2)
-	// 取消订阅 post 主题事件
-	//eventBus.Unsubscribe("post", subscribe)
+func TestEventBus_Publish_GoroutineAsync_IsolatesPanics(t *testing.T) {
+	bus := eventbus.NewEventBus(eventbus.WithBuffer(1))
+
+	listenerCalled := make(chan struct{}, 1)
+	bus.AddListener("t", func(event eventbus.Event) {
+		panic("boom")
+	})
+	bus.AddListener("t", func(event eventbus.Event) {
+		listenerCalled <- struct{}{}
+	})
+
+	subscribe := bus.Subscribe("t")
+	defer bus.Unsubscribe("t", subscribe)
+
+	bus.Publish("t", eventbus.Event{Payload: "payload", Async: eventbus.GoroutineAsync})
+
+	select {
+	case <-listenerCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("listener not called")
+	}
+
+	select {
+	case <-subscribe:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("subscriber not received")
+	}
+}
+
+func TestEventBus_Publish_TaskAsync_FallbackWithoutHandle(t *testing.T) {
+	bus := eventbus.NewEventBus(eventbus.WithBuffer(1))
+
+	listenerCalled := make(chan struct{}, 1)
+	bus.AddListener("t", func(event eventbus.Event) {
+		listenerCalled <- struct{}{}
+	})
+
+	subscribe := bus.Subscribe("t")
+	defer bus.Unsubscribe("t", subscribe)
+
+	bus.Publish("t", eventbus.Event{Payload: "payload", Async: eventbus.TaskAsync})
+
+	select {
+	case <-listenerCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("listener not called")
+	}
+
+	select {
+	case <-subscribe:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("subscriber not received")
+	}
+}
+
+func TestEventBus_Publish_TaskAsync_UsesHandle(t *testing.T) {
+	handle := gotask.NewTaskHandleWithName("ABC", 1, 10)
+	handle.StartWorkerPool()
+	handle.AddTask(eventbus.EventTask{Name: "ABC"})
+
+	bus := eventbus.NewEventBus(eventbus.WithHandle(handle), eventbus.WithBuffer(1))
+
+	listenerCalled := make(chan struct{}, 1)
+	bus.AddListener("t", func(event eventbus.Event) {
+		listenerCalled <- struct{}{}
+	})
+
+	subscribe := bus.Subscribe("t")
+	defer bus.Unsubscribe("t", subscribe)
+
+	bus.Publish("t", eventbus.Event{Payload: "payload", Async: eventbus.TaskAsync})
+
+	select {
+	case <-listenerCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("listener not called")
+	}
+
+	select {
+	case <-subscribe:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("subscriber not received")
+	}
 }

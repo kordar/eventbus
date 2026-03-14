@@ -8,6 +8,14 @@ func recoverPanic() {
 	}
 }
 
+func safeCall(listener Listener, event Event) {
+	if listener == nil {
+		return
+	}
+	defer recoverPanic()
+	listener(event)
+}
+
 func safeSend(ch EventChan, event Event) {
 	defer func() { recover() }()
 	select {

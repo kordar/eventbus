@@ -55,6 +55,8 @@ func (m *EventBusModule) loadOne(id string, cfg map[string]string) error {
 		WithHandle(handle),
 	)
 
+	Provide(id, bus)
+
 	if m.loadFn != nil {
 		m.loadFn(m.name, id, cfg, bus)
 		logger.Debugf("[%s] custom loader executed for '%s'", m.Name(), id)

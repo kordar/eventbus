@@ -54,6 +54,9 @@ func NewEventBus(opts ...Option) *EventBus {
 
 // AddListener 一般topic使用事件id进行绑定listener
 func (eb *EventBus) AddListener(topic string, listener Listener) {
+	if listener == nil {
+		return
+	}
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 	eb.listeners[topic] = append(eb.listeners[topic], listener)
@@ -66,7 +69,10 @@ func (eb *EventBus) Publish(topic string, event Event) {
 		return
 	}
 
-	listeners := append([]Listener{}, eb.listeners[topic]...)
+	var listeners []Listener
+	if ls := eb.listeners[topic]; len(ls) > 0 {
+		listeners = append([]Listener(nil), ls...)
+	}
 
 	var subscribers []EventChan
 	if subs, ok := eb.subscribers[topic]; ok {
@@ -77,33 +83,43 @@ func (eb *EventBus) Publish(topic string, event Event) {
 	}
 	eb.mu.RUnlock()
 
+	if len(listeners) == 0 && len(subscribers) == 0 {
+		return
+	}
+
 	switch event.Async {
 
 	case NoneAsync:
 		for _, listener := range listeners {
-			func() {
-				defer recoverPanic()
-				listener(event)
-			}()
+			safeCall(listener, event)
 		}
 		for _, ch := range subscribers {
 			safeSend(ch, event)
 		}
 
 	case TaskAsync:
-		if eb.taskHandle != nil {
-			eb.taskHandle.SendToTaskQueue(&EventBody{
-				Event:      event,
-				Subscribes: subscribers,
-				Listeners:  listeners,
-			})
+		if eb.taskHandle == nil {
+			go func() {
+				for _, listener := range listeners {
+					safeCall(listener, event)
+				}
+				for _, ch := range subscribers {
+					safeSend(ch, event)
+				}
+			}()
+			return
 		}
+
+		eb.taskHandle.SendToTaskQueue(&EventBody{
+			Event:      event,
+			Subscribes: subscribers,
+			Listeners:  listeners,
+		})
 
 	case GoroutineAsync:
 		go func() {
-			defer recoverPanic()
 			for _, listener := range listeners {
-				listener(event)
+				safeCall(listener, event)
 			}
 			for _, ch := range subscribers {
 				safeSend(ch, event)

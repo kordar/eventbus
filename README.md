@@ -1,133 +1,84 @@
-# EventBus 使用说明
+# EventBus
 
-## 1. 初始化 EventBus + TaskHandle
+一个轻量的 Go 事件总线，支持：
 
-生产环境建议配合 **`gotask.TaskHandle`** 使用，以便异步任务队列安全执行事件。
+- Listener 回调模式
+- Subscriber channel 模式
+- 同步、goroutine 异步、任务队列异步
 
-```go
-handle := gotask.NewTaskHandleWithName("ABC", 3, 10)
-handle.StartWorkerPool()
-handle.AddTask(eventbus.EventTask{})  // 绑定 EventBus 任务
-eventBus := eventbus.NewEventBus(eventbus.WithHandle(handle))
+## 安装
+
+```bash
+go get github.com/kordar/eventbus
 ```
 
-说明：
-
-- `"ABC"`：TaskHandle 名称
-- `3`：Worker 数量
-- `10`：任务队列长度
-- `EventTask{}`：EventBus 的任务执行器，负责异步事件分发
-
-------
-
-## 2. 订阅事件（Subscriber 模式）
-
-Subscriber 是通过 channel 获取事件，适合长时间任务或 fan-out 模型。
+## 初始化
 
 ```go
-subscribe := eventBus.Subscribe("post")
-defer eventBus.Unsubscribe("post", subscribe) // 程序结束前取消订阅
+bus := eventbus.NewEventBus(
+    eventbus.WithBuffer(16),
+)
+```
 
-// 监听事件
+## 订阅事件（Subscriber）
+
+```go
+ch := bus.Subscribe("post")
+defer bus.Unsubscribe("post", ch)
+
 go func() {
-    for event := range subscribe {
-        logger.Info(event)
+    for e := range ch {
+        _ = e
     }
 }()
 ```
 
-说明：
-
-- `Subscribe("post")`：订阅 `post` 主题
-- `Unsubscribe`：取消订阅，关闭 channel
-- channel 消费可用 goroutine 独立处理，异步安全
-
-------
-
-## 3. 添加监听器（Listener 模式）
-
-Listener 是函数回调模式，适合处理日志、缓存刷新等轻量逻辑。
+## 添加监听器（Listener）
 
 ```go
-type Demo struct{}
-
-func (d *Demo) Reg(event eventbus.Event) {
-    logger.Info("register event:", event.Id, event.Payload)
-}
-
-demo := &Demo{}
-eventBus.AddListener("post2", demo.Reg)
-
-// 也可以直接添加匿名函数
-eventBus.AddListener("post2", func(event eventbus.Event) {
-    logger.Info("匿名监听器触发")
+bus.AddListener("post", func(e eventbus.Event) {
+    _ = e
 })
 ```
 
-说明：
-
-- Listener 会在 **同步或 TaskAsync 模式**下触发
-- panic 会被隔离，不影响其他 listener 或 subscriber
-
-------
-
-## 4. 发布事件（Publish）
-
-### 4.1 普通发布（同步 / 默认模式）
+## 发布事件
 
 ```go
-eventBus.Publish("post", eventbus.Event{
-    Payload: map[string]interface{}{
-        "postId": 1,
-        "title":  "Go 事件驱动编程：实现一个简单的事件总线",
-        "author": "陈明勇",
-    },
+bus.Publish("post", eventbus.Event{
+    Id:      "post.created",
+    Payload: map[string]interface{}{"postId": 1},
 })
 ```
 
-说明：
+## 异步策略
 
-- `Publish(topic, event)` 发布事件
-- 事件会被 **所有 listener + subscriber** 接收
-- 不存在订阅者的 topic 事件会被忽略
+`Event.Async` 支持三种策略：
 
-------
+- `NoneAsync`：同步执行
+- `GoroutineAsync`：在 goroutine 中派发
+- `TaskAsync`：提交到 `gotask.TaskHandle` 执行；未设置 handle 时会自动降级为 goroutine 派发
 
-### 4.2 异步任务模式发布（TaskAsync）
+## TaskAsync（推荐生产使用）
 
 ```go
-eventBus.Publish("post2", eventbus.Event{
-    Payload: "pay222",
+handle := gotask.NewTaskHandleWithName("ABC", 3, 10)
+handle.StartWorkerPool()
+handle.AddTask(eventbus.EventTask{Name: "ABC"})
+
+bus := eventbus.NewEventBus(
+    eventbus.WithHandle(handle),
+    eventbus.WithBuffer(16),
+)
+
+bus.Publish("post", eventbus.Event{
+    Payload: "payload",
     Async:   eventbus.TaskAsync,
 })
 ```
 
-说明：
+## 行为说明
 
-- 事件通过 `gotask.TaskHandle` 异步执行
-- 避免 goroutine 泄漏和阻塞
-- 推荐生产环境使用
-
-------
-
-## 5. 示例总结
-
-完整示例流程：
-
-1. 创建 TaskHandle 并绑定 EventTask
-2. 初始化 EventBus
-3. Subscriber 订阅主题
-4. Listener 注册回调函数
-5. Publish 发布事件
-6. 可通过 TaskAsync 异步执行
-7. 程序结束前取消订阅 / 调用 EventBus.Close()
-
-------
-
-## 6. 注意事项
-
-- Listener 执行尽量保持轻量
-- Subscriber channel 建议设置缓冲区，避免阻塞
-- 发布事件时 channel 满可能丢弃事件
-- 异步模式建议配合 TaskHandle 使用，防止 goroutine 爆炸
-- 发布不存在的 topic 不会报错
+- 发布时会把事件同时派发给 Listener 与 Subscriber
+- Listener 的 panic 会被隔离，不影响其他 Listener 或 Subscriber
+- Subscriber channel 满时会丢弃事件（非阻塞）
+- `Close()` 会关闭所有订阅 channel，并拒绝后续发布
