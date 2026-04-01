@@ -1,7 +1,7 @@
 package eventbus
 
 import (
-	"log"
+	"log/slog"
 
 	"github.com/kordar/gotask"
 )
@@ -29,13 +29,13 @@ func (e EventTask) Id() string {
 func (e EventTask) Execute(body gotask.IBody) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[EventTask-%s] panic recovered: %+v", e.Name, r)
+			slog.Error("[EventTask] panic recovered", "name", e.Name, "err", r)
 		}
 	}()
 
 	eventBody, ok := body.(*EventBody)
 	if !ok {
-		log.Printf("[EventTask-%s] invalid body type: %T", e.Name, body)
+		slog.Error("[EventTask] invalid body type", "name", e.Name, "body", body)
 		return
 	}
 
@@ -44,7 +44,7 @@ func (e EventTask) Execute(body gotask.IBody) {
 		func(l Listener) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[EventTask-%s] listener panic recovered: %+v", e.Name, r)
+					slog.Error("[EventTask] listener panic recovered", "name", e.Name, "err", r)
 				}
 			}()
 			l(eventBody.Event)

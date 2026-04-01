@@ -2,9 +2,9 @@ package eventbus
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
-	logger "github.com/kordar/gologger"
 	"github.com/kordar/gotask"
 	"github.com/spf13/cast"
 )
@@ -59,10 +59,10 @@ func (m *EventBusModule) loadOne(id string, cfg map[string]string) error {
 
 	if m.loadFn != nil {
 		m.loadFn(m.name, id, cfg, bus)
-		logger.Debugf("[%s] custom loader executed for '%s'", m.Name(), id)
+		slog.Debug("custom loader executed", "module", m.Name(), "id", id)
 	}
 
-	logger.Infof("[%s] module '%s' loaded successfully", m.Name(), id)
+	slog.Info("module loaded successfully", "module", m.Name(), "id", id)
 	return nil
 }
 
@@ -73,7 +73,7 @@ func (m *EventBusModule) Load(value interface{}) {
 	if items["id"] != nil {
 		id := cast.ToString(items["id"])
 		if err := m.loadOne(id, cast.ToStringMapString(items)); err != nil {
-			logger.Errorf(err.Error())
+			slog.Error("load eventbus module failed", "id", id, "err", err)
 		}
 		return
 	}
@@ -82,7 +82,7 @@ func (m *EventBusModule) Load(value interface{}) {
 	for id, raw := range items {
 		cfg := cast.ToStringMapString(raw)
 		if err := m.loadOne(id, cfg); err != nil {
-			logger.Errorf(err.Error())
+			slog.Error("load eventbus module failed", "id", id, "err", err)
 		}
 	}
 }

@@ -1,10 +1,10 @@
 package eventbus
 
-import logger "github.com/kordar/gologger"
+import "log/slog"
 
 func recoverPanic() {
 	if r := recover(); r != nil {
-		logger.Errorf("catch the exception execution, err = %v", r)
+		slog.Error("catch the exception execution", "err", r)
 	}
 }
 

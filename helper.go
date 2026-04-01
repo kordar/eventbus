@@ -1,9 +1,8 @@
 package eventbus
 
 import (
+	"log/slog"
 	"sync"
-
-	logger "github.com/kordar/gologger"
 )
 
 var (
@@ -16,7 +15,7 @@ func Get(name string) *EventBus {
 	defer mu.RUnlock()
 	bus, ok := buses[name]
 	if !ok {
-		logger.Fatalf("event bus %s not exist.", name)
+		slog.Error("event bus not exist", "name", name)
 	}
 	return bus
 }
